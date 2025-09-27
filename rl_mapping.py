@@ -114,7 +114,7 @@ titan_required_columns = [
 
 # Required columns for Reliance Excel export (from reliance/rl_excelconverter.py)
 reliance_required_columns = [
-    'JOBWORKNUMBER','SrNo', 'StyleCode', 'ItemSize', 'OrderQty', 'OrderItemPcs', 'Metal', 'Tone', 'ItemPoNo',
+    'SrNo', 'StyleCode', 'ItemSize', 'OrderQty', 'OrderItemPcs', 'Metal', 'Tone', 'ItemPoNo',
     'ItemRefNo', 'StockType', 'MakeType', 'CustomerProductionInstruction', 'SpecialRemarks',
     'DesignProductionInstruction', 'StampInstruction', 'OrderGroup', 'Certificate', 'SKUNo',
     'Basestoneminwt', 'Basestonemaxwt', 'Basemetalminwt', 'Basemetalmaxwt',
