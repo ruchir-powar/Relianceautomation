@@ -1,6 +1,13 @@
 import os
 import pandas as pd
+from datetime import datetime
 from Clients.reliance.rl_mapping import stamping_mapping, reliance_required_columns
+
+# Columns that must NOT appear in the final Excel
+def _drop_excluded(df: pd.DataFrame) -> pd.DataFrame:
+    # match any variant that trims to JOBWORKNUMBER
+    to_drop = [c for c in df.columns if c.strip().upper() == "JOBWORKNUMBER"]
+    return df.drop(columns=to_drop, errors="ignore")
 
 
 def ensure_columns(df, required_columns=reliance_required_columns):
@@ -13,12 +20,13 @@ def ensure_columns(df, required_columns=reliance_required_columns):
                 df[column] = ''
     return df
 
+
 def filter_columns(df, required_columns=reliance_required_columns):
     # Filter only existing columns from the DataFrame
     available_columns = [col for col in required_columns if col in df.columns]
-    return df[available_columns]
+    out = df[available_columns]
+    return _drop_excluded(out)  # ensure banned columns never slip through
 
-from datetime import datetime
 
 def save_to_excel_by_metal(df, output_prefix='output', set_processed=None):
     # Get unique metal qualities
@@ -51,6 +59,8 @@ def save_to_excel_by_metal(df, output_prefix='output', set_processed=None):
                 if len(sheet_name) > 31:
                     sheet_name = sheet_name[:31]
 
+                # Drop excluded columns once more (belt & suspenders)
+                group_df_filtered = _drop_excluded(group_df_filtered)
                 group_df_filtered.to_excel(writer, sheet_name=sheet_name, index=False)
 
         # Process set_processed if available
@@ -72,6 +82,7 @@ def save_to_excel_by_metal(df, output_prefix='output', set_processed=None):
                     if len(sheet_name) > 31:
                         sheet_name = sheet_name[:31]
 
+                    group_df_filtered = _drop_excluded(group_df_filtered)
                     group_df_filtered.to_excel(writer, sheet_name=sheet_name, index=False)
 
     print(f"File saved: {file_name}")
@@ -81,8 +92,10 @@ def save_to_excel_by_metal(df, output_prefix='output', set_processed=None):
 def process_and_export(df, output_prefix='output', set_processed=None):
     # Ensure required columns are present in the DataFrame
     df = ensure_columns(df)
+    df = _drop_excluded(df)
     if set_processed is not None and not set_processed.empty:
         set_processed1 = ensure_columns(set_processed)
+        set_processed1 = _drop_excluded(set_processed1)
         return save_to_excel_by_metal(df, output_prefix, set_processed1)
     # Save DataFrame into an Excel file and return the file path
     return save_to_excel_by_metal(df, output_prefix, set_processed)
