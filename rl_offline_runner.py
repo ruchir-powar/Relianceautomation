@@ -1,6 +1,7 @@
 import sys, types, os, re
 import pandas as pd
 
+# ---- shim so Clients.reliance.rl_mapping works ----
 import rl_mapping as _rl_mapping
 Clients = types.ModuleType('Clients')
 reliance = types.ModuleType('Clients.reliance')
@@ -9,6 +10,7 @@ Clients.reliance = reliance
 sys.modules['Clients'] = Clients
 sys.modules['Clients.reliance'] = reliance
 sys.modules['Clients.reliance.rl_mapping'] = _rl_mapping
+# ---------------------------------------------------
 
 import rl_helper as H
 import rl_mapping as M
@@ -46,7 +48,8 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
         rename[c] = target
     out = df.rename(columns=rename)
     all_nan = [c for c in out.columns if out[c].isna().all()]
-    if all_nan: out = out.drop(columns=all_nan)
+    if all_nan:
+        out = out.drop(columns=all_nan)
     return out
 
 
@@ -78,9 +81,8 @@ def _read_mainorder_excel_autodetect(path: str) -> pd.DataFrame:
             df = pd.read_excel(xls, sheet_name=sheet, header=hdr_idx, dtype=str)
             df = _normalize_columns(df)
             if any(k in df.columns for k in [
-                'Item Id', 'Ext Item Id', 'Work Order Id',
-                'Article code', 'Sub Product Code', 'SKUNo',
-                'Code', 'QUALITY', 'KT'
+                'Item Id', 'Ext Item Id', 'Work Order Id', 'Article code',
+                'Sub Product Code', 'SKUNo', 'Code', 'QUALITY', 'KT'
             ]):
                 chosen = df
                 break
@@ -92,18 +94,20 @@ def _read_mainorder_excel_autodetect(path: str) -> pd.DataFrame:
 
 
 def _ensure_column(df: pd.DataFrame, name: str, default='') -> pd.DataFrame:
-    if name not in df.columns: df[name] = default
+    if name not in df.columns:
+        df[name] = default
     return df
 
 
 def _derive_kt_from_text(txt: str) -> str:
-    if not txt: return ''
+    if not txt:
+        return ''
     t = txt.upper().replace(' ', '')
     if '18KT' in t or 'GA18' in t or '18K' in t: return '18KT'
     if '14KT' in t or 'GA14' in t or '14K' in t: return '14KT'
-    if '9KT' in t or 'GA09' in t or '9K' in t: return '9KT'
-    if 'PT95' in t or 'PT' in t: return 'PT95'
-    if 'S925' in t or 'S999' in t: return 'SILVER'
+    if '9KT'  in t or 'GA09' in t or '9K'  in t: return '9KT'
+    if 'PT95' in t or 'PT'   in t:             return 'PT95'
+    if 'S925' in t or 'S999' in t:             return 'SILVER'
     return ''
 
 
@@ -123,6 +127,21 @@ def mirror_special_remarks(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+# --------- global SpecialRemarks note ----------
+GLOBAL_SPECIAL_REMARK = "MAINTAIN DIA.WT- 0.03 CTS,DIA TOL (+ - 3%),"
+
+def ensure_global_special_remarks(df: pd.DataFrame) -> pd.DataFrame:
+    import re as _re
+    for col in ("SpecialRemarks", "Special Remarks"):
+        if col in df.columns:
+            s = df[col].astype(str).fillna("")
+            has = s.str.contains(_re.escape(GLOBAL_SPECIAL_REMARK), case=False, na=False)
+            s.loc[~has] = s.loc[~has].map(lambda x: (x + " " if x else "") + GLOBAL_SPECIAL_REMARK)
+            df[col] = s
+    return df
+# ------------------------------------------------
+
+
 def run_offline(input_xlsx: str, client_name: str = 'Reliance',
                 output_prefix: str = None,
                 style_master_csv: str = None,
@@ -140,6 +159,7 @@ def run_offline(input_xlsx: str, client_name: str = 'Reliance',
             raise TypeError("helper_reliance() did not return a DataFrame.")
         main = _normalize_columns(rl_cleaned)
 
+    # Fallbacks
     if 'Item Id' not in main.columns and 'Ext Item Id' in main.columns:
         main['Item Id'] = main['Ext Item Id']
 
@@ -147,6 +167,7 @@ def run_offline(input_xlsx: str, client_name: str = 'Reliance',
         main['QUALITY'] = main['Code']
     main['StoneQuality'] = main.get('StoneQuality', main.get('QUALITY', '')).fillna('')
 
+    # Metal / KT
     itemid_ser = main.get('Item Id', '').astype(str)
     first_char = itemid_ser.str[0]
     metal_map = first_char.map(M.mapping_for_quality)
@@ -155,17 +176,14 @@ def run_offline(input_xlsx: str, client_name: str = 'Reliance',
     main['KT_std'] = main.get('KT', '')
     main['KT_from_metal'] = main['Metal'].apply(_derive_kt_from_text)
     main['KT_from_itemid'] = itemid_ser.apply(_derive_kt_from_text)
-    main['KT_final'] = main['KT_std']
-    main.loc[main['KT_final'].eq('') & main['KT_from_metal'].ne(''), 'KT_final'] = main['KT_from_metal']
-    main.loc[main['KT_final'].eq('') & main['KT_from_itemid'].ne(''), 'KT_final'] = main['KT_from_itemid']
 
     def _norm_kt(v):
         v = '' if v is None else str(v).upper().strip().replace(' ', '')
-        import re
-        if re.match(r'^(14|18|9)KT$', v): return v
-        m = re.match(r'^(14|18|9)K$', v)
+        import re as _re
+        if _re.match(r'^(14|18|9)KT$', v): return v
+        m = _re.match(r'^(14|18|9)K$', v)
         if m: return m.group(1) + 'KT'
-        m = re.match(r'^(14|18|9)$', v)
+        m = _re.match(r'^(14|18|9)$', v)
         if m: return m.group(1) + 'KT'
         if v in {'GA18', 'GA14', 'GA09'}: return v.replace('GA', '') + 'KT'
         if v.startswith('GAWHI18'): return '18KT'
@@ -174,12 +192,17 @@ def run_offline(input_xlsx: str, client_name: str = 'Reliance',
         if v in {'S925', 'S999'}: return 'SILVER'
         return v or ''
 
+    main['KT_final'] = main['KT_std']
+    main.loc[main['KT_final'].eq('') & main['KT_from_metal'].ne(''), 'KT_final'] = main['KT_from_metal']
+    main.loc[main['KT_final'].eq('') & main['KT_from_itemid'].ne(''), 'KT_final'] = main['KT_from_itemid']
     main['KT_final'] = main['KT_final'].apply(_norm_kt)
 
+    # Other computed columns
     main['Tone'] = itemid_ser.str[15].map(H.map_tone) if len(itemid_ser) else ''
     main['CustomerProductionInstruction'] = itemid_ser.map(H.generate_customer_productinstruction)
     main['ItemSize'] = main.apply(H.map_order_group, axis=1)
 
+    # Temporary for internal use (will be dropped)
     if 'Work Order Id' in main.columns:
         main['JOBWORKNUMBER'] = main['Work Order Id']
     elif 'Work Order Id ' in main.columns:
@@ -188,26 +211,37 @@ def run_offline(input_xlsx: str, client_name: str = 'Reliance',
         main['JOBWORKNUMBER'] = ''
 
     def _fmt_kq(kt, q):
-        kt = (kt or '').strip(); q = (q or '').strip()
+        kt = (kt or '').strip()
+        q = (q or '').strip()
         return f"{kt} {q}".strip()
 
     main['KT_QUALITY'] = [_fmt_kq(k, q) for k, q in zip(main['KT_final'], main['StoneQuality'])]
 
-    # ---- Safeguards & remarks sync ----
+    # ---- Safeguards & SpecialRemarks (no article code injection) ----
     main = H.stamping_instruct(main)
     main = _ensure_column(main, 'Checking_set', 0)
     main = _ensure_column(main, 'SpecialRemarks', '')
     main = _ensure_column(main, 'Article code', '')
-    main = H.update_special_remarks_with_article_code(main)
-    main = mirror_special_remarks(main)
 
-    # Bridge: let rename map catch "Special Remarks" -> ItemRefNo
+    # ❌ Do NOT call H.update_special_remarks_with_article_code(main)
+    # main = H.update_special_remarks_with_article_code(main)
+
+    main = mirror_special_remarks(main)
+    main = ensure_global_special_remarks(main)   # append default note everywhere
+
+    # Ensure both headers exist before rename
     if 'Special Remarks' not in main.columns and 'SpecialRemarks' in main.columns:
         main['Special Remarks'] = main['SpecialRemarks']
 
+    # Final renames & adjustments
     main.rename(columns=M.RELIANCE_COLUMN_RENAME_MAP, inplace=True)
     main = H.adjust_production_delivery_date(main)
 
+    # Drop JOBWORKNUMBER from final export (and any variants)
+    main.drop(columns=[c for c in main.columns if c.strip().upper() == 'JOBWORKNUMBER'],
+              inplace=True, errors='ignore')
+
+    # Export
     base, _ = os.path.splitext(input_xlsx)
     output_prefix = output_prefix or f"{base}_processed"
     output_file = XL.process_and_export(main, output_prefix=output_prefix, set_processed=None)
@@ -219,7 +253,8 @@ def run_offline(input_xlsx: str, client_name: str = 'Reliance',
         wb = load_workbook(output_file)
         targets = [n for n in wb.sheetnames if 'unknown' in _re.sub(r'\s+', '', n.lower())]
         if targets and (len(wb.sheetnames) - len(targets)) >= 1:
-            for n in targets: wb.remove(wb[n])
+            for n in targets:
+                wb.remove(wb[n])
             wb.save(output_file)
     except Exception:
         pass
